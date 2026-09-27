@@ -5,15 +5,15 @@ import diffRendererExtension, { __testing } from "./index.js";
 
 vi.mock("./core/config.js", () => ({
 	configIndicatorStyle: () => undefined,
-	loadPiDiffConfig: () => ({}),
+	loadPiDiffConfig: () => ({ disabledTools: [] }),
 }));
 
 describe("tool header names", () => {
-	it("prefixes write, edit, and apply_patch with a left arrow", () => {
-		assert.equal(__testing.formatToolHeaderName("write"), "← write");
-		assert.equal(__testing.formatToolHeaderName("create"), "← create");
-		assert.equal(__testing.formatToolHeaderName("edit"), "← edit");
-		assert.equal(__testing.formatToolHeaderName("apply_patch"), "← apply_patch");
+	it("does not prefix tool header names", () => {
+		assert.equal(__testing.formatToolHeaderName("write"), "write");
+		assert.equal(__testing.formatToolHeaderName("create"), "create");
+		assert.equal(__testing.formatToolHeaderName("edit"), "edit");
+		assert.equal(__testing.formatToolHeaderName("apply_patch"), "apply_patch");
 		assert.equal(__testing.formatToolHeaderName("read"), "read");
 	});
 
@@ -91,7 +91,7 @@ describe("write/edit/apply_patch shell spacing", () => {
 				toolCallId: `${name}-call`,
 			});
 			const lines = renderDefaultToolShell(call);
-			const title = lineContaining(lines, `← ${name}`);
+			const title = lineContaining(lines, `${name}`);
 			assert.equal(title.index, 2, `${name} title should follow the host spacer and top pad`);
 			assert.equal(leadingSpaces(title.line), 1, `${name} title should have one leading space`);
 		}
@@ -108,7 +108,7 @@ describe("write/edit/apply_patch shell spacing", () => {
 			invalidate() {},
 		});
 		const lines = renderDefaultToolShell(call);
-		const title = lineContaining(lines, "← create");
+		const title = lineContaining(lines, "create");
 		assert.equal(title.index, 2);
 		assert.equal(lines.length, 4);
 	});
@@ -142,7 +142,7 @@ describe("write/edit/apply_patch shell spacing", () => {
 			assert.equal(leadingSpaces(body.line), 1, `${name} diff body should have one leading space`);
 			assert.equal(
 				body.index,
-				lineContaining(lines, `← ${name}`).index + 1,
+				lineContaining(lines, `${name}`).index + 1,
 				`${name} diff should sit directly under the title`,
 			);
 			let trailingBlankLines = 0;
@@ -195,7 +195,7 @@ describe("write/edit/apply_patch shell spacing", () => {
 					{ args, state: {}, lastComponent: undefined, invalidate() {}, isError: true },
 				);
 			const lines = renderDefaultToolShell(error);
-			assert.equal(leadingSpaces(lineContaining(lines, `← ${name}`).line), 1, `${name} error title should be aligned`);
+			assert.equal(leadingSpaces(lineContaining(lines, `${name}`).line), 1, `${name} error title should be aligned`);
 			assert.equal(leadingSpaces(lineContaining(lines, "failure").line), 1, `${name} error should be aligned`);
 		}
 	});
@@ -212,7 +212,7 @@ describe("write/edit/apply_patch shell spacing", () => {
 			state: {},
 			toolCallId: "apply-call",
 		});
-		const callTitle = lineContaining(renderDefaultToolShell(call), "← apply_patch");
+		const callTitle = lineContaining(renderDefaultToolShell(call), "apply_patch");
 		assert.equal(callTitle.index, 2);
 		assert.equal(leadingSpaces(callTitle.line), 1);
 
@@ -246,7 +246,7 @@ describe("write/edit/apply_patch shell spacing", () => {
 			{ args: { changes: [change] }, state: {}, lastComponent: undefined, invalidate() {}, isError: true },
 		);
 		const errorLines = renderDefaultToolShell(error);
-		assert.equal(leadingSpaces(lineContaining(errorLines, "← apply_patch").line), 1);
+		assert.equal(leadingSpaces(lineContaining(errorLines, "apply_patch").line), 1);
 		assert.equal(leadingSpaces(lineContaining(errorLines, "failure").line), 1);
 	});
 });

@@ -26,7 +26,7 @@ import { access as accessFile, readFile, writeFile } from "node:fs/promises";
 import { extname, relative } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { codeToANSI } from "@shikijs/cli";
+import { codeToANSI } from "./shiki.js";
 import * as Diff from "diff";
 import {
 	type ApplyPatchChange,
@@ -68,10 +68,8 @@ interface PiTheme {
 	bold(text: string): string;
 }
 
-const ARROW_PREFIXED_TOOL_HEADERS = new Set(["write", "create", "edit", "apply_patch"]);
-
 function formatToolHeaderName(name: string): string {
-	return ARROW_PREFIXED_TOOL_HEADERS.has(name) ? `← ${name}` : name;
+	return name;
 }
 
 function isToolResultError(result: { isError?: boolean }, context: { isError?: boolean }): boolean {
@@ -237,6 +235,19 @@ function mixBg(
 	return `\x1b[48;2;${r};${g};${b}m`;
 }
 
+function themeBgAnsi(theme: PiTheme | undefined, name: string): string {
+	try {
+		const direct = theme?.getBgAnsi?.(name);
+		if (direct) return direct;
+		const marker = "\0";
+		const styled = theme?.bg?.(name, marker);
+		const index = styled?.indexOf(marker) ?? -1;
+		return index > 0 ? styled!.slice(0, index) : "";
+	} catch {
+		return "";
+	}
+}
+
 /** Whether auto-derive from theme is still pending (runs lazily on first render). */
 let _autoDerivePending = true;
 
@@ -258,26 +269,13 @@ function autoDeriveBgFromTheme(theme: PiTheme): void {
 
 		let addBase = { r: 0, g: 0, b: 0 };
 		let delBase = addBase;
-		if (theme.getBgAnsi) {
-			try {
-				const successBgAnsi = theme.getBgAnsi("toolSuccessBg");
-				const successParsed = parseAnsiRgb(successBgAnsi);
-				if (successParsed) {
-					addBase = successParsed;
-					delBase = successParsed;
-					BG_BASE = successBgAnsi;
-				}
-			} catch {
-				/* no toolSuccessBg — use black */
-			}
-
-			try {
-				const errorParsed = parseAnsiRgb(theme.getBgAnsi("toolErrorBg"));
-				if (errorParsed) delBase = errorParsed;
-			} catch {
-				/* no toolErrorBg — use toolSuccessBg/black */
-			}
+		const successParsed = parseAnsiRgb(themeBgAnsi(theme, "toolSuccessBg"));
+		if (successParsed) {
+			addBase = successParsed;
+			delBase = successParsed;
 		}
+		const errorParsed = parseAnsiRgb(themeBgAnsi(theme, "toolErrorBg"));
+		if (errorParsed) delBase = errorParsed;
 
 		// Line backgrounds — visible accent mixed into the matching tool-state base (15–18%)
 		BG_ADD = mixBg(addBase, addRgb, 0.15);
@@ -514,8 +512,8 @@ const ESC_RE = "\u001b";
 const ANSI_RE = new RegExp(`${ESC_RE}\\[[0-9;]*m`, "g");
 const ANSI_CAPTURE_RE = new RegExp(`${ESC_RE}\\[([^m]*)m`, "g");
 const ANSI_PARAM_CAPTURE_RE = new RegExp(`${ESC_RE}\\[([0-9;]*)m`, "g");
-const BG_DEFAULT = "\x1b[49m"; // reset to terminal default background
-let BG_BASE = BG_DEFAULT; // tool box base bg — updated from theme's toolSuccessBg
+const BG_DEFAULT = "";
+let BG_BASE = BG_DEFAULT;
 
 // ---------------------------------------------------------------------------
 // Theme-aware diff colors
@@ -564,7 +562,7 @@ function themeCacheKey(theme?: PiTheme): string {
 
 /** Resolve diff fg colors from theme (if available), falling back to hardcoded ANSI.
  *  On first call with a valid theme, auto-derives bg colors if no explicit config was set.
- *  Always reads toolSuccessBg for BG_BASE (used for context/add line backgrounds). */
+ */
 function resolveDiffColors(theme?: PiTheme): DiffColors {
 	const currentThemeKey = themeCacheKey(theme);
 	if (!_hasExplicitBgConfig && _lastResolvedThemeKey && _lastResolvedThemeKey !== currentThemeKey) {
@@ -573,18 +571,11 @@ function resolveDiffColors(theme?: PiTheme): DiffColors {
 		_autoDerivePending = true;
 	}
 	_lastResolvedThemeKey = currentThemeKey;
-	// Always read toolSuccessBg for BG_BASE (even with explicit config)
-	if (theme?.getBgAnsi && BG_BASE === BG_DEFAULT) {
-		try {
-			const bgAnsi = theme.getBgAnsi("toolSuccessBg");
-			const parsed = parseAnsiRgb(bgAnsi);
-			if (parsed) {
-				BG_BASE = bgAnsi;
-				RST = `\x1b[0m${BG_BASE}`;
-			}
-		} catch {
-			/* ignore */
-		}
+
+	const successBackground = themeBgAnsi(theme, "toolSuccessBg");
+	if (successBackground) {
+		BG_BASE = successBackground;
+		RST = `\x1b[0m${BG_BASE}`;
 	}
 
 	// Auto-derive bg colors from theme on first render (if no explicit preset/overrides)
@@ -1414,7 +1405,7 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 	}
 
 	const cwd = process.cwd();
-	const disabledTools = new Set(loadPiDiffConfig().disabledTools ?? []);
+	const disabledTools = new Set(loadPiDiffConfig().disabledTools ?? ["apply_patch"]);
 	const registerToolIfEnabled = (toolName: PiDiffToolName, tool: Parameters<ExtensionAPI["registerTool"]>[0]): void => {
 		if (!disabledTools.has(toolName)) pi.registerTool(tool);
 	};
@@ -1658,10 +1649,10 @@ export default async function diffRendererExtension(pi: ExtensionAPI): Promise<v
 	}
 
 	function padDiffBody(rendered: string, bodyLeftPad = DIFF_BODY_LEFT_PAD): string {
-		const leftPad = `${BG_BASE}${" ".repeat(bodyLeftPad)}${RST}`;
+		const leftPad = `${BG_BASE}${" ".repeat(bodyLeftPad)}`;
 		return rendered
 			.split("\n")
-			.map((line) => `${leftPad}${line}`)
+			.map((line) => `${leftPad}${line}${RST}`)
 			.join("\n");
 	}
 

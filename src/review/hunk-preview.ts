@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 
-import { codeToANSI } from "@shikijs/cli";
+import { codeToANSI } from "../shiki.js";
 import * as Diff from "diff";
 import { configIndicatorStyle } from "../core/config.js";
 import { getSepStyle, type ParsedDiff, sepLabelSplit, sepLabelUnified } from "../core/diff.js";
@@ -160,7 +160,7 @@ const ESC_RE = "\u001b";
 const ANSI_RE = new RegExp(`${ESC_RE}\\[[0-9;]*m`, "g");
 const ANSI_CAPTURE_RE = new RegExp(`${ESC_RE}\\[([^m]*)m`, "g");
 const ANSI_PARAM_CAPTURE_RE = new RegExp(`${ESC_RE}\\[([0-9;]*)m`, "g");
-const BG_DEFAULT = "\x1b[49m";
+const BG_DEFAULT = "";
 let BG_BASE = BG_DEFAULT;
 let DEFAULT_DIFF_COLORS: DiffColors = { fgAdd: FG_ADD, fgDel: FG_DEL, fgCtx: FG_DIM };
 let _lastResolvedThemeKey = "";
@@ -304,6 +304,19 @@ function mixBg(
 	return `\x1b[48;2;${r};${g};${b}m`;
 }
 
+function themeBgAnsi(theme: any, name: string): string {
+	try {
+		const direct = theme?.getBgAnsi?.(name);
+		if (direct) return direct;
+		const marker = "\0";
+		const styled = theme?.bg?.(name, marker);
+		const index = styled?.indexOf(marker) ?? -1;
+		return index > 0 ? styled.slice(0, index) : "";
+	} catch {
+		return "";
+	}
+}
+
 function autoDeriveBgFromTheme(theme: any): void {
 	if (!theme?.getFgAnsi) return;
 	try {
@@ -315,21 +328,13 @@ function autoDeriveBgFromTheme(theme: any): void {
 
 		let addBase = { r: 0, g: 0, b: 0 };
 		let delBase = addBase;
-		if (theme.getBgAnsi) {
-			try {
-				const successBgAnsi = theme.getBgAnsi("toolSuccessBg");
-				const successParsed = parseAnsiRgb(successBgAnsi);
-				if (successParsed) {
-					addBase = successParsed;
-					delBase = successParsed;
-					BG_BASE = successBgAnsi;
-				}
-			} catch {}
-			try {
-				const errorParsed = parseAnsiRgb(theme.getBgAnsi("toolErrorBg"));
-				if (errorParsed) delBase = errorParsed;
-			} catch {}
+		const successParsed = parseAnsiRgb(themeBgAnsi(theme, "toolSuccessBg"));
+		if (successParsed) {
+			addBase = successParsed;
+			delBase = successParsed;
 		}
+		const errorParsed = parseAnsiRgb(themeBgAnsi(theme, "toolErrorBg"));
+		if (errorParsed) delBase = errorParsed;
 
 		BG_ADD = mixBg(addBase, addRgb, 0.15);
 		BG_DEL = mixBg(delBase, delRgb, 0.18);
@@ -480,15 +485,10 @@ export function resolveDiffColors(theme?: any): DiffColors {
 		_autoDerivePending = true;
 	}
 	_lastResolvedThemeKey = currentThemeKey;
-	if (theme?.getBgAnsi && BG_BASE === BG_DEFAULT) {
-		try {
-			const bgAnsi = theme.getBgAnsi("toolSuccessBg");
-			const parsed = parseAnsiRgb(bgAnsi);
-			if (parsed) {
-				BG_BASE = bgAnsi;
-				RST = `\x1b[0m${BG_BASE}`;
-			}
-		} catch {}
+	const successBackground = themeBgAnsi(theme, "toolSuccessBg");
+	if (successBackground) {
+		BG_BASE = successBackground;
+		RST = `\x1b[0m${BG_BASE}`;
 	}
 	if (_autoDerivePending && theme?.getFgAnsi) {
 		autoDeriveBgFromTheme(theme);
